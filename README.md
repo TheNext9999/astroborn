@@ -71,3 +71,6 @@ streamlit run app.py
 - Đơn đặt in (canvas/ốp lưng/bưu thiếp) hiện được lưu vào `data/orders.csv` —
   đây là bản mô phỏng (MVP), bạn có thể thay bằng kết nối tới hệ thống thanh
   toán/CRM thật khi triển khai chính thức.
+
+## Ghi chú ngoài lề
+- Dự án này được xây dựng với mục đích học hỏi, khám phá và chia sẻ niềm đam mê thiên văn học qua một trải nghiệm tương tác đơn giản. 
