@@ -1,116 +1,37 @@
 """
-AstroBorn - Cosmic Snapshot
-============================
-Trang web 100% Python (Streamlit) cho phép người dùng nhập ngày giờ sinh
-và nhận về:
-  1. Bức ảnh thiên văn (NASA APOD) gần đúng với thời khắc họ chào đời.
-  2. "Bức thư từ Vũ trụ" do AI viết, mang phong cách triết học/chữa lành.
-  3. Ảnh có thể tải về (đã in kèm thông tin ngày sinh) để làm quà tặng.
-  4. Form đặt in (canvas / ốp lưng / bưu thiếp vũ trụ) - mô phỏng đơn hàng.
+app.py — AstroBorn (trang chính: Khám phá của bạn)
+=====================================================
+Đây là điểm khởi chạy của ứng dụng multipage Streamlit. Các trang khác
+(Cặp đôi vũ trụ, Wall of Stars) nằm trong thư mục pages/ và sẽ tự động
+xuất hiện ở thanh điều hướng bên trái.
+
+Toàn bộ logic nghiệp vụ (gọi NASA API, sinh thư, xử lý ảnh, cache) nằm
+trong package core/ - app.py chỉ còn nhiệm vụ điều phối giao diện.
 
 Chạy: streamlit run app.py
 """
 
-import csv
 import datetime
-import io
-import os
 
-import requests
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
 
-from letter_generator import generate_letter
-from nasa_api import get_cosmic_snapshot
+from core.services.letter_generator import generate_letter
+from core.services.nasa_api import get_cosmic_snapshot
+from core.storage import cache_db
+from core.ui import components, styles
 
-# --------------------------------------------------------------------------
-# Cấu hình trang & CSS "vũ trụ" (dark mode, chữ neon, nền sao lấp lánh)
-# --------------------------------------------------------------------------
 st.set_page_config(
     page_title="AstroBorn | Bức ảnh vũ trụ ngày bạn chào đời",
     page_icon="✨",
     layout="centered",
 )
+styles.apply()
+styles.header("✨ AstroBorn ✨", "Vũ trụ đã thắp sáng vì sao nào khi bạn chào đời?")
 
-CUSTOM_CSS = """
-<style>
-@keyframes twinkle {
-    0% { opacity: 0.2; }
-    50% { opacity: 1; }
-    100% { opacity: 0.2; }
-}
-.stApp {
-    background: radial-gradient(ellipse at top, #0d1b3e 0%, #05060f 60%, #000000 100%);
-    color: #eae6ff;
-}
-.astro-title {
-    text-align: center;
-    font-size: 2.6rem;
-    font-weight: 800;
-    background: linear-gradient(90deg, #7dd3fc, #c084fc, #f472b6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 0;
-    letter-spacing: 2px;
-}
-.astro-slogan {
-    text-align: center;
-    color: #a5b4fc;
-    font-style: italic;
-    margin-top: 4px;
-    margin-bottom: 28px;
-}
-.cosmic-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(196,181,253,0.25);
-    border-radius: 18px;
-    padding: 24px;
-    box-shadow: 0 0 30px rgba(139,92,246,0.15);
-}
-.letter-box {
-    background: rgba(124, 58, 237, 0.08);
-    border-left: 3px solid #c084fc;
-    padding: 18px 22px;
-    border-radius: 8px;
-    font-style: italic;
-    line-height: 1.7;
-    color: #ede9fe;
-}
-.star {
-    position: fixed;
-    background: white;
-    border-radius: 50%;
-    animation: twinkle 3s infinite ease-in-out;
-    z-index: 0;
-}
-div.stButton > button {
-    background: linear-gradient(90deg, #7c3aed, #db2777);
-    color: white;
-    border: none;
-    border-radius: 999px;
-    padding: 10px 26px;
-    font-weight: 600;
-}
-div.stButton > button:hover {
-    filter: brightness(1.15);
-}
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-st.markdown('<div class="astro-title">✨ AstroBorn ✨</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="astro-slogan">Vũ trụ đã thắp sáng vì sao nào khi bạn chào đời?</div>',
-    unsafe_allow_html=True,
-)
-
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-ORDERS_FILE = os.path.join(DATA_DIR, "orders.csv")
-
+cache_db.init_db()
 
 # --------------------------------------------------------------------------
-# 1. THE LAUNCHPAD - Cổng nhập thông tin
+# THE LAUNCHPAD - Cổng nhập thông tin
 # --------------------------------------------------------------------------
 with st.form("launchpad_form"):
     st.markdown("### 🚀 The Launchpad — Nhập khoảnh khắc bạn chào đời")
@@ -138,37 +59,13 @@ if submitted:
     st.session_state["letter"] = letter
     st.session_state["birth_date_str"] = birth_date_str
     st.session_state["city"] = city
+    # reset ảnh share card cũ (nếu có) khi tra cứu mới
+    st.session_state.pop("main_share_image", None)
 
 
 # --------------------------------------------------------------------------
-# 2 & 3. THE COSMIC ENGINE + COSMIC SNAPSHOT - Hiển thị kết quả
+# Hiển thị kết quả + tải ảnh / chia sẻ / đặt in / góp vào Wall of Stars
 # --------------------------------------------------------------------------
-def build_downloadable_image(image_bytes: bytes, birth_date_str: str, city: str) -> bytes:
-    """Ghép khung thông tin ngày sinh vào dưới ảnh, trả về bytes PNG."""
-    base = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    banner_h = 90
-    canvas = Image.new("RGB", (base.width, base.height + banner_h), (5, 6, 15))
-    canvas.paste(base, (0, 0))
-
-    draw = ImageDraw.Draw(canvas)
-    try:
-        font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-    except Exception:
-        font_big = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-
-    title_line = "AstroBorn — Cosmic Snapshot"
-    sub_line = f"{birth_date_str}" + (f"  ·  {city}" if city else "")
-
-    draw.text((24, base.height + 14), title_line, fill=(200, 170, 255), font=font_big)
-    draw.text((24, base.height + 52), sub_line, fill=(180, 180, 220), font=font_small)
-
-    out = io.BytesIO()
-    canvas.save(out, format="PNG")
-    return out.getvalue()
-
-
 if "snapshot" in st.session_state:
     snapshot = st.session_state["snapshot"]
     letter = st.session_state["letter"]
@@ -176,41 +73,25 @@ if "snapshot" in st.session_state:
     city = st.session_state["city"]
 
     st.markdown("---")
-    st.markdown('<div class="cosmic-card">', unsafe_allow_html=True)
+    source_note = {"cache": "⚡ lấy từ cache", "fallback": "📦 dữ liệu dự phòng offline"}.get(
+        snapshot.get("source"), ""
+    )
+    image_bytes = components.render_snapshot_result(snapshot, letter, extra_caption=source_note)
 
-    st.markdown(f"#### 🌠 {snapshot['title']}")
-    st.caption(f"Ảnh chụp ngày {snapshot['date']} · Nguồn: {snapshot.get('copyright', 'NASA')}")
+    st.markdown("### 🎁 Tải ảnh & Chia sẻ")
+    components.render_download_and_share(image_bytes, snapshot, letter, birth_date_str, city, key_prefix="main")
 
-    image_bytes = None
-    try:
-        img_resp = requests.get(snapshot["url"], timeout=10)
-        img_resp.raise_for_status()
-        image_bytes = img_resp.content
-        st.image(image_bytes, use_container_width=True)
-    except Exception:
-        st.info("Không thể tải ảnh trực tiếp (có thể do mạng bị chặn). Đây là mô tả ảnh:")
+    st.markdown("### 🌌 Góp vào Wall of Stars")
+    with st.form("wall_form"):
+        st.caption("Đồng ý chia sẻ ẩn danh Bức thư từ Vũ trụ của bạn lên trang công khai để lan tỏa cảm hứng.")
+        display_name = st.text_input("Tên hiển thị (không bắt buộc)", placeholder="Ví dụ: một người mộng mơ")
+        share_to_wall = st.form_submit_button("✨ Chia sẻ lên Wall of Stars")
 
-    with st.expander("📖 Mô tả thiên văn (từ NASA)"):
-        st.write(snapshot.get("explanation", ""))
+    if share_to_wall:
+        cache_db.add_wall_entry(display_name, letter, snapshot["title"], snapshot.get("url", ""))
+        st.success("Đã thêm bức thư của bạn vào Wall of Stars! Ghé trang 'Wall of Stars' ở thanh bên để xem. 🌠")
 
-    st.markdown("##### 💌 Bức thư từ Vũ trụ")
-    st.markdown(f'<div class="letter-box">{letter}</div>', unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ---------------- 4. Tính năng thương mại & lan tỏa -------------------
-    st.markdown("### 🎁 Tải ảnh & Đặt làm quà tặng")
-
-    if image_bytes:
-        downloadable = build_downloadable_image(image_bytes, birth_date_str, city)
-        st.download_button(
-            "⬇️ Tải ảnh bản quyền (kèm thông tin ngày sinh)",
-            data=downloadable,
-            file_name="astroborn_cosmic_snapshot.png",
-            mime="image/png",
-        )
-
-    st.markdown("##### 🖼️ Dịch vụ in ấn (Bưu thiếp / Canvas / Ốp lưng)")
+    st.markdown("### 🖼️ Dịch vụ in ấn (Bưu thiếp / Canvas / Ốp lưng)")
     with st.form("order_form"):
         product = st.selectbox(
             "Chọn sản phẩm muốn đặt in",
@@ -223,8 +104,14 @@ if "snapshot" in st.session_state:
         if not contact.strip():
             st.warning("Vui lòng nhập thông tin liên hệ để chúng tôi gửi báo giá.")
         else:
-            file_exists = os.path.isfile(ORDERS_FILE)
-            with open(ORDERS_FILE, "a", newline="", encoding="utf-8") as f:
+            import csv
+            import os
+
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            os.makedirs(data_dir, exist_ok=True)
+            orders_file = os.path.join(data_dir, "orders.csv")
+            file_exists = os.path.isfile(orders_file)
+            with open(orders_file, "a", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not file_exists:
                     writer.writerow(["timestamp", "product", "contact", "birth_date", "city", "image_title"])
@@ -241,4 +128,8 @@ if "snapshot" in st.session_state:
             st.success("Đã ghi nhận yêu cầu! Đội ngũ AstroBorn sẽ liên hệ bạn sớm. 🚀")
 
 st.markdown("---")
-st.caption("AstroBorn · Dữ liệu ảnh thiên văn từ NASA APOD API · Made with Python & Streamlit")
+stats = cache_db.cache_stats()
+st.caption(
+    f"AstroBorn · {stats['cached_snapshots']} ngày đã cache · {stats['wall_entries']} thư trên Wall of Stars "
+    "· Dữ liệu ảnh từ NASA APOD API · Made with Python & Streamlit"
+)

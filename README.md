@@ -1,52 +1,82 @@
 # AstroBorn — Cosmic Snapshot 🌌
 
-Trang web **100% Python** (dùng [Streamlit](https://streamlit.io) — không cần viết HTML/CSS/JS tay),
-dựa trên ý tưởng trong file `Idea_Futuret.docx`:
+Trang web **100% Python** (dùng [Streamlit](https://streamlit.io)), dựa trên ý tưởng
+trong `Idea_Futuret.docx`: nhập ngày/giờ sinh → nhận bức ảnh thiên văn NASA gần
+đúng ngày đó → AI viết "Bức thư từ Vũ trụ" → tải ảnh/chia sẻ/đặt in.
 
-Người dùng nhập ngày/giờ sinh + thành phố → hệ thống lấy bức ảnh thiên văn NASA (APOD)
-gần đúng với ngày sinh → AI viết "Bức thư từ Vũ trụ" → người dùng có thể tải ảnh
-(kèm khung thông tin ngày sinh) hoặc đặt in làm quà tặng.
+Dự án được tổ chức theo **package chuẩn**, tách riêng từng trang và từng nhóm
+chức năng để dễ bảo trì, mở rộng.
 
 ## Cấu trúc dự án
 
 ```
 astroborn/
-├── app.py                # Giao diện + luồng chính (Streamlit)
-├── nasa_api.py            # Gọi NASA APOD API, xử lý ngày sinh
-├── letter_generator.py    # Sinh "Bức thư từ Vũ trụ" (template + AI thật nếu có key)
+├── app.py                          # Trang chính: Khám phá của bạn
+├── pages/                          # Mỗi file = 1 trang (Streamlit multipage)
+│   ├── 1_💞_Cap_doi_Vu_tru.py       # So sánh sự tương hợp giữa 2 ngày sinh
+│   └── 2_🌌_Wall_of_Stars.py        # Tường thư vũ trụ công khai (ẩn danh)
+├── core/                            # Package lõi - toàn bộ logic nghiệp vụ
+│   ├── services/
+│   │   ├── nasa_api.py              # Gọi NASA APOD API + fallback offline
+│   │   ├── letter_generator.py      # Sinh thư cá nhân & thư cặp đôi (AI hoặc template)
+│   │   └── social_card.py           # Xử lý ảnh: ảnh quà tặng + ảnh chia sẻ mạng xã hội
+│   ├── storage/
+│   │   └── cache_db.py              # Cache SQLite (ảnh NASA) + lưu Wall of Stars
+│   └── ui/
+│       ├── styles.py                 # CSS "vũ trụ" dùng chung mọi trang
+│       └── components.py             # Khối giao diện tái sử dụng (kết quả, nút tải/chia sẻ)
+├── data/                             # Nơi lưu astroborn.db (SQLite) và orders.csv
 ├── requirements.txt
-├── data/
-│   └── orders.csv          # Đơn đặt in được lưu tại đây (tự tạo khi có đơn đầu tiên)
 └── README.md
 ```
 
-## Cài đặt
+Nhờ tách theo package, `streamlit run app.py` sẽ **tự động tạo thanh điều
+hướng bên trái** với 3 trang: *Khám phá của bạn*, *Cặp đôi Vũ trụ*, *Wall of
+Stars* — không cần code thêm gì để có multipage.
+
+## Cài đặt & chạy
 
 ```bash
 cd astroborn
 pip install -r requirements.txt
-```
-
-## Chạy trang web
-
-```bash
 streamlit run app.py
 ```
 
-Trình duyệt sẽ tự mở tại `http://localhost:8501`.
+Trình duyệt tự mở tại `http://localhost:8501`.
+
+> Nếu Windows PowerShell báo "streamlit không được nhận dạng", dùng thay:
+> `python -m streamlit run app.py`
+
+## Các tính năng đã có
+
+### 🌠 Trải nghiệm & cá nhân hoá
+- **Khám phá của bạn**: ảnh NASA APOD gần ngày sinh + Bức thư từ Vũ trụ.
+- **Cặp đôi Vũ trụ**: nhập 2 ngày sinh, nhận thư về sự tương hợp giữa hai người.
+
+### 📣 Lan tỏa & viral
+- **Ảnh chia sẻ mạng xã hội**: tạo ảnh vuông 1080×1080 có trích đoạn thư đè
+  lên ảnh nền, tối ưu để đăng Instagram/Facebook (module `social_card.py`).
+- **Wall of Stars**: người dùng có thể chia sẻ ẩn danh bức thư của mình lên
+  tường công khai, khuyến khích người mới ghé thăm tự tạo thư của họ.
+
+### ⚙️ Kỹ thuật
+- **Cache SQLite** (`cache_db.py`): mỗi ngày chỉ gọi NASA API thật một lần,
+  các lượt tra cứu sau (cùng ngày) được phục vụ từ cache — nhanh hơn và tiết
+  kiệm quota API.
+- **Kiến trúc package** rõ ràng: `services` (nghiệp vụ) / `storage` (dữ liệu)
+  / `ui` (giao diện dùng chung), giúp thêm trang mới hoặc chức năng mới dễ
+  dàng mà không phải sửa các phần không liên quan.
 
 ## Cấu hình (tuỳ chọn)
 
-Trang vẫn chạy được ngay mà **không cần API key** (dùng `DEMO_KEY` của NASA + bộ sinh
-thư bằng template). Để nâng cấp trải nghiệm, đặt các biến môi trường:
+Trang chạy được ngay **không cần API key** (dùng `DEMO_KEY` của NASA + bộ
+sinh thư bằng template). Để nâng cấp:
 
 | Biến môi trường     | Mục đích                                                        |
 |----------------------|-------------------------------------------------------------------|
-| `NASA_API_KEY`       | Lấy miễn phí tại https://api.nasa.gov — tránh giới hạn của DEMO_KEY |
-| `ANTHROPIC_API_KEY`  | Nếu có, "Bức thư từ Vũ trụ" sẽ do Claude viết thay vì template     |
-| `OPENAI_API_KEY`     | Tương tự, dùng GPT nếu bạn không có key Anthropic                  |
-
-Ví dụ trên macOS/Linux:
+| `NASA_API_KEY`       | Lấy miễn phí tại https://api.nasa.gov — tránh giới hạn DEMO_KEY    |
+| `ANTHROPIC_API_KEY`  | Nếu có, thư sẽ do Claude viết thay vì dùng template                |
+| `OPENAI_API_KEY`     | Tương tự, dùng GPT nếu không có key Anthropic                     |
 
 ```bash
 export NASA_API_KEY="your_key_here"
@@ -54,23 +84,10 @@ export ANTHROPIC_API_KEY="your_key_here"
 streamlit run app.py
 ```
 
-## Ghi chú triển khai theo lộ trình trong tài liệu gốc
+## Hướng phát triển tiếp theo
 
-- ✅ Bước 1 (UI/UX): giao diện dark-mode, chữ neon, đã dựng sẵn bằng CSS trong `app.py`.
-- ✅ Bước 2 (Kết nối dữ liệu): tích hợp NASA APOD API trong `nasa_api.py`, có cơ chế
-  dự phòng offline nếu API lỗi/hết quota.
-- ✅ Bước 3 (Lập trình): toàn bộ Frontend + Backend đều bằng Python (Streamlit).
-- 🔜 Bước 4 (Ra mắt): bạn có thể deploy miễn phí lên **Streamlit Community Cloud**,
-  hoặc các nền tảng hỗ trợ Python như Render/Railway, rồi chia sẻ lên các hội nhóm
-  yêu thiên văn/cung hoàng đạo.
-
-## Ghi chú kỹ thuật khác
-
-- Ảnh trước ngày 16/06/1995 (mốc NASA APOD bắt đầu) sẽ tự động quy đổi về
-  cùng ngày/tháng ở năm gần nhất có dữ liệu.
-- Đơn đặt in (canvas/ốp lưng/bưu thiếp) hiện được lưu vào `data/orders.csv` —
-  đây là bản mô phỏng (MVP), bạn có thể thay bằng kết nối tới hệ thống thanh
-  toán/CRM thật khi triển khai chính thức.
-
-## Ghi chú ngoài lề
-- Dự án này được xây dựng với mục đích học hỏi, khám phá và chia sẻ niềm đam mê thiên văn học qua một trải nghiệm tương tác đơn giản. 
+- Bản đồ sao (star chart) thật tại thời điểm/toạ độ sinh (dùng `skyfield`/`astropy`).
+- Đa ngôn ngữ (Việt/Anh) để mở rộng ra thị trường quốc tế.
+- Gói Premium (khung ảnh cao cấp, thư dài hơn) + tích hợp API in ấn thật
+  (Printful/Printify) để tự động hoá từ đặt hàng đến giao hàng.
+- Nhắc lại "bức ảnh vũ trụ" mỗi năm vào đúng ngày sinh (qua email).
